@@ -1,0 +1,172 @@
+import sqlite3
+import datetime
+import random
+import openai  # Certifique-se de instalar com: pip install openai
+
+class GestaoEscolar:
+    def __init__(self, db_name='escola.db'):
+        self.conn = sqlite3.connect(db_name)
+        self.cursor = self.conn.cursor()
+        self.criar_tabelas()
+        
+        # Configure sua chave API do OpenAI
+        openai.api_key = 'SUA_CHAVE_API_OPENAI'
+
+    def criar_tabelas(self):
+        # Tabela de alunos
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS alunos (
+                id INTEGER PRIMARY KEY,
+                nome TEXT,
+                email TEXT,
+                data_nascimento DATE
+            )
+        ''')
+        
+        # Tabela de mensalidades
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS mensalidades (
+                id INTEGER PRIMARY KEY,
+                aluno_id INTEGER,
+                valor REAL,
+                data_vencimento DATE,
+                data_pagamento DATE,
+                status TEXT,
+                FOREIGN KEY (aluno_id) REFERENCES alunos(id)
+            )
+        ''')
+        
+        # Tabela de exercícios gerados
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS exercicios (
+                id INTEGER PRIMARY KEY,
+                disciplina TEXT,
+                nivel_dificuldade TEXT,
+                conteudo TEXT,
+                data_geracao DATE
+            )
+        ''')
+        
+        self.conn.commit()
+
+    def cadastrar_aluno(self, nome, email, data_nascimento):
+        self.cursor.execute('''
+            INSERT INTO alunos (nome, email, data_nascimento) 
+            VALUES (?, ?, ?)
+        ''', (nome, email, data_nascimento))
+        self.conn.commit()
+        return self.cursor.lastrowid
+
+    def registrar_mensalidade(self, aluno_id, valor, data_vencimento):
+        self.cursor.execute('''
+            INSERT INTO mensalidades (aluno_id, valor, data_vencimento, status) 
+            VALUES (?, ?, ?, ?)
+        ''', (aluno_id, valor, data_vencimento, 'Pendente'))
+        self.conn.commit()
+
+    def registrar_pagamento(self, mensalidade_id):
+        data_pagamento = datetime.date.today()
+        self.cursor.execute('''
+            UPDATE mensalidades 
+            SET data_pagamento = ?, status = 'Pago'
+            WHERE id = ?
+        ''', (data_pagamento, mensalidade_id))
+        self.conn.commit()
+
+    def gerar_exercicios_com_ia(self, disciplina, nivel_dificuldade, quantidade=5):
+        try:
+            # Exemplo de geração de exercícios usando OpenAI
+            prompt = f"Gere {quantidade} exercícios de {disciplina} de nível {nivel_dificuldade}."
+            
+            resposta = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Você é um professor que cria exercícios educacionais."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            
+            conteudo_exercicios = resposta.choices[0].message.content
+            
+            # Salvar exercícios no banco de dados
+            self.cursor.execute('''
+                INSERT INTO exercicios (disciplina, nivel_dificuldade, conteudo, data_geracao) 
+                VALUES (?, ?, ?, ?)
+            ''', (disciplina, nivel_dificuldade, conteudo_exercicios, datetime.date.today()))
+            
+            self.conn.commit()
+            return conteudo_exercicios
+        
+        except Exception as e:
+            print(f"Erro ao gerar exercícios: {e}")
+            return None
+
+    def listar_mensalidades_pendentes(self):
+        self.cursor.execute('''
+            SELECT a.nome, m.valor, m.data_vencimento 
+            FROM mensalidades m
+            JOIN alunos a ON m.aluno_id = a.id
+            WHERE m.status = 'Pendente'
+        ''')
+        return self.cursor.fetchall()
+
+    def fechar_conexao(self):
+        self.conn.close()
+
+def menu_principal():
+    escola = GestaoEscolar()
+    
+    while True:
+        print("\n--- SISTEMA DE GESTÃO ESCOLAR ---")
+        print("1. Cadastrar Aluno")
+        print("2. Registrar Mensalidade")
+        print("3. Registrar Pagamento")
+        print("4. Gerar Lista de Exercícios")
+        print("5. Listar Mensalidades Pendentes")
+        print("6. Sair")
+        
+        opcao = input("Escolha uma opção: ")
+        
+        if opcao == '1':
+            nome = input("Nome do aluno: ")
+            email = input("Email do aluno: ")
+            data_nascimento = input("Data de nascimento (AAAA-MM-DD): ")
+            escola.cadastrar_aluno(nome, email, data_nascimento)
+            print("Aluno cadastrado com sucesso!")
+        
+        elif opcao == '2':
+            aluno_id = int(input("ID do aluno: "))
+            valor = float(input("Valor da mensalidade: "))
+            data_vencimento = input("Data de vencimento (AAAA-MM-DD): ")
+            escola.registrar_mensalidade(aluno_id, valor, data_vencimento)
+            print("Mensalidade registrada com sucesso!")
+        
+        elif opcao == '3':
+            mensalidade_id = int(input("ID da mensalidade: "))
+            escola.registrar_pagamento(mensalidade_id)
+            print("Pagamento registrado com sucesso!")
+        
+        elif opcao == '4':
+            disciplina = input("Disciplina: ")
+            nivel_dificuldade = input("Nível de dificuldade: ")
+            exercicios = escola.gerar_exercicios_com_ia(disciplina, nivel_dificuldade)
+            if exercicios:
+                print("\nExercícios Gerados:")
+                print(exercicios)
+        
+        elif opcao == '5':
+            pendentes = escola.listar_mensalidades_pendentes()
+            print("\nMensalidades Pendentes:")
+            for aluno, valor, data in pendentes:
+                print(f"Aluno: {aluno}, Valor: R${valor:.2f}, Vencimento: {data}")
+        
+        elif opcao == '6':
+            escola.fechar_conexao()
+            print("Saindo do sistema...")
+            break
+        
+        else:
+            print("Opção inválida!")
+
+if __name__ == "__main__":
+    menu_principal()
